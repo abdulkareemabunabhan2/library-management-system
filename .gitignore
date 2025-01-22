@@ -18,7 +18,7 @@ logs/
 *.db
 
 # Alembic migrations
-migrations/versions/
+library/infrastructure/database/migrations/versions/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
