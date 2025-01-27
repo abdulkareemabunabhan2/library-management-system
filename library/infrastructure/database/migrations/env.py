@@ -1,11 +1,12 @@
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-from library.infrastructure.database.schema import  metadata
-from dotenv import load_dotenv
 from alembic import context
+from dotenv import load_dotenv
+from sqlalchemy import engine_from_config, pool
+
+from library.infrastructure.database.schema import metadata
+
 load_dotenv()
 
 # this is the Alembic Config object, which provides

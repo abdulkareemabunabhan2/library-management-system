@@ -1,53 +1,60 @@
-import uuid
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
 
 from library.application.member_service import MemberService
-from library.application.services import get_member_service
-from library.domain.member_type.entity import MemberType
-from library.infrastructure.database.db import get_async_session
-from library.infrastructure.repositories.member_repository import MemberRepository
-from library.presntation.models import MemberBase, MemberResponse
-from library.application.services import get_member_repo
+from library.application.shared.exceptions import DataNotFoundException
+from library.presntation.models import MemberCreate, MemberResponse
+
 router = APIRouter()
+
 
 # Member Endpoints:
 # POST /members/: Add a new member.
-@router.post("/")
-async def create_member(member_data: MemberBase, service: MemberService = Depends(get_member_service)) -> MemberResponse:
-    member_db = MemberBase(name= member_data.name, email=member_data.email)
-    member = await service.add_member(MemberType.from_dict(member_db.model_dump()))
-    return MemberResponse(**member)
+@router.post('/')
+async def create_member(data: MemberCreate, service: MemberService = Depends(MemberService)) -> MemberResponse:
+    member = await service.add(data.model_dump())
+    member_data = member.to_dict()
+    return MemberResponse(**member_data)
+
 
 # GET /members/: View all members.
-@router.get("/")
-async def members(member_repo: MemberRepository = Depends(get_member_repo)) -> list[MemberResponse]:
-    db_members = await member_repo.list()
-    return [MemberResponse(**member) for member in db_members]
+@router.get('/')
+async def get_all(service: MemberService = Depends(MemberService)) -> list[MemberResponse]:
+    db_members = await service.list()
+    if not db_members:
+        raise HTTPException(status_code=500, detail=f'Database error')
+    return [MemberResponse(**member.to_dict()) for member in db_members]
+
 
 # GET /members/{member_id}: View a specific member by ID.
-@router.get("/{member_id}")
-async def member(member_id: uuid.UUID, repo: MemberRepository = Depends(get_member_repo)) -> MemberResponse:
-    db_member = await repo.get(member_id)
-    if db_member is None:
-        raise HTTPException(status_code=404, detail=f"there is no member with this id: {member_id}")
-    return MemberResponse(**db_member)
+@router.get('/{id}')
+async def get_by_id(id: UUID, service: MemberService = Depends(MemberService)) -> MemberResponse:
+    try:
+        db_member = await service.get_by_id(id)
+        member_data = db_member.to_dict()
+        return MemberResponse(**member_data)
+    except DataNotFoundException:
+        raise HTTPException(status_code=404, detail=f'there is no member with id {id}')
+
 
 # PUT /members/{member_id}: Update member details.
-@router.put('/{member_id}')
-async def member_update(member_id: uuid.UUID, member_data: MemberBase, service: MemberService = Depends(get_member_service)) -> MemberResponse:
-    data = member_data.model_dump()
-    data["member_id"] = member_id
-    db_member = await service.update_member(data)
-    if db_member is None:
-        raise HTTPException(status_code=404, detail=f"No db_member found with this Id: {member_id}")
-    return MemberResponse(**db_member)
+@router.put('/{id}')
+async def update(id: UUID, data: MemberCreate, service: MemberService = Depends(MemberService)) -> MemberResponse:
+    update_data = data.model_dump()
+    try:
+        db_member = await service.update(id, update_data)
+        member_data = db_member.to_dict()
+        return MemberResponse(**member_data)
+    except DataNotFoundException:
+        raise HTTPException(status_code=404, detail=f'No member found with this Id: {id}')
+
 
 # DELETE /members/{member_id}: Delete a member.
-@router.delete("/{member_id}")
-async def member_delete(member_id: uuid.UUID, service: MemberService = Depends(get_member_service)) -> uuid.UUID:
-    db_member = await service.delete_member(member_id)
-    if db_member is None:
-        raise HTTPException(status_code=404, detail=f"No member found with this Id: {member_id}")
-    return member_id
+@router.delete('/{id}')
+async def delete(id: UUID, service: MemberService = Depends(MemberService)) -> UUID:
+    try:
+        await service.delete(id)
+        return id
+    except DataNotFoundException:
+        raise HTTPException(status_code=404, detail=f'No member found with this Id: {id}')

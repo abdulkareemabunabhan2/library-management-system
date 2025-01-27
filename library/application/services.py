@@ -1,31 +1,52 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from library.infrastructure.database.db import get_async_session
-from library.infrastructure.repositories.books_repository import BookRepository
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Optional, Self
+
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+
+from library.infrastructure.database.db import async_engine
+from library.infrastructure.repositories.book_repository import BookRepository
 from library.infrastructure.repositories.member_repository import MemberRepository
-from library.application.book_service import BookService
-from library.application.member_service import MemberService
-router = APIRouter()
 
-# book repo
-def get_book_repo(session: AsyncSession = Depends(get_async_session)) -> BookRepository:
-    return BookRepository(session)
 
-# member repo
-def get_member_repo(session: AsyncSession = Depends(get_async_session)) -> MemberRepository:
-    return MemberRepository(session)
+class WorkService:
+    def __init__(self, engine: AsyncEngine):
+        self.engine: AsyncEngine = engine
+        self.connection: AsyncConnection
 
-# Book service
-def get_book_service(
-    book_repo: BookRepository = Depends(get_book_repo),
-    member_repo: MemberRepository = Depends(get_member_repo),
-    session: AsyncSession = Depends(get_async_session),
-) -> BookService:
-    return BookService(book_repo, member_repo, session)
+    async def __aenter__(self) -> Self:
+        self.connection = await self.engine.connect()
+        await self.connection.begin()
+        return self
 
-# Member service
-def get_member_service(
-    member_repo: MemberRepository = Depends(get_member_repo),
-    session: AsyncSession = Depends(get_async_session),
-) -> MemberService:
-    return MemberService(member_repo, session)
+    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[Exception], exc_tb: Optional[object]) -> None:
+        if exc_type:
+            await self.rollback()
+        else:
+            await self.commit()
+        await self.connection.close()
+
+    async def commit(self) -> None:
+        if self.connection:
+            await self.connection.commit()
+
+    async def rollback(self) -> None:
+        if self.connection:
+            await self.connection.rollback()
+
+    @property
+    def book_repo(self) -> BookRepository:
+        if not hasattr(self, "_book_repo"):
+            self._book_repo = BookRepository(self.connection)
+        return self._book_repo
+
+    @property
+    def member_repo(self) -> MemberRepository:
+        if not hasattr(self, "_member_repo"):
+            self._member_repo = MemberRepository(self.connection)
+        return self._member_repo
+
+
+@asynccontextmanager
+async def get_work_service() -> AsyncGenerator[WorkService, None]:
+    async with WorkService(async_engine) as work_service:
+        yield work_service

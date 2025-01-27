@@ -1,26 +1,34 @@
-import uuid
 from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
 from pydantic import BaseModel, EmailStr
 
-class MemberBase(BaseModel):
+
+class MemberCreate(BaseModel):
     name: str
     email: EmailStr
 
-class MemberCreate(MemberBase):
-    pass
 
-class MemberResponse(MemberBase):
-    member_id: uuid.UUID
+class MemberResponse(BaseModel):
+    id: UUID
+    name: str
+    email: str
+    created_at: datetime
+    updated_at: datetime | None
 
-class BookBase(BaseModel):
+
+class BookCreate(BaseModel):
     title: str
     author: str
 
-class BookCreate(BookBase):
-    pass
 
-class BookResponse(BookBase):
-    book_id: uuid.UUID
-    is_borrowed: bool = False
-    borrowed_date: datetime | None = None
-    borrowed_by: uuid.UUID | None = None
+class BookResponse(BaseModel):
+    id: UUID
+    title: str
+    author: str
+    is_borrowed: bool | None = False
+    created_at: datetime
+    updated_at: Optional[datetime]
+    borrowed_date: Optional[datetime]
+    borrowed_by: UUID | None = None

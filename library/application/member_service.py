@@ -1,42 +1,48 @@
-from uuid import UUID
 from typing import Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from library.domain.member_type.entity import MemberType
-from library.infrastructure.repositories.member_repository import MemberRepository
+from uuid import UUID
+
+from library.application.services import get_work_service
+from library.application.shared.exceptions import DataNotFoundException
+from library.domain.member.entity import MemberEntity
+
 
 class MemberService:
-    def __init__(self, member_repo: MemberRepository, session: AsyncSession):
-        self.member_repo = member_repo
-        self.session = session
 
-    async def add_member(self, member: MemberType) -> dict[str, Any] | None:
+    # add a member service
+    async def add(self, member: dict[str, Any]) -> MemberEntity:
         """
         This method allows you to add member.
         """
-        return await self.member_repo.add(member)
+        member_data = MemberEntity.from_dict(member)
+        async with get_work_service() as work_service:
+            return await work_service.member_repo.add(member_data)
 
-    async def update_member(self, data: dict[str, Any]) -> dict[str, Any] | None:
+    # List all members
+    async def list(self) -> list[MemberEntity]:
         """
-        This method allows you to update member data if he already exists
+        This method lists all members in the repository.
         """
-        if 'member_id' not in data:
-            raise KeyError("The 'member_id' field is required to update a member.")
-        member_id = data["member_id"]
-        if not data:
-            raise Exception("No data provided for update.")
+        async with get_work_service() as work_service:
+            return await work_service.member_repo.get_all()
 
-        member = await self.member_repo.get(member_id)
-
-        if not member:
-            raise Exception(f"Member with ID {member_id} not found.")
-
-        return await self.member_repo.update(data)
-
-    async def delete_member(self, member_id: UUID) -> UUID | None:
+    # get member by id
+    async def get_by_id(self, id: UUID) -> MemberEntity:
         """
-        This method allows you to delete a member by id.
+        Get a book by its Id.
         """
-        member = await self.member_repo.get(member_id)
-        if not member:
-            return None
-        return await self.member_repo.delete(member_id)
+        async with get_work_service() as work_service:
+            if not (member := await work_service.member_repo.get_by_id(id)):
+                raise DataNotFoundException(f'There is No member with {id} found')
+            return member
+
+    async def update(self, id: UUID, data: dict[str, Any]) -> MemberEntity:
+        async with get_work_service() as work_service:
+            if not await work_service.member_repo.get_by_id(id):
+                raise DataNotFoundException(f'Member with ID {id} not found.')
+            return await work_service.member_repo.update(id, data)
+
+    async def delete(self, id: UUID) -> MemberEntity | None:
+        async with get_work_service() as work_service:
+            if not await work_service.member_repo.get_by_id(id):
+                raise DataNotFoundException(f'Member with ID {id} not found.')
+            return await work_service.member_repo.delete(id)

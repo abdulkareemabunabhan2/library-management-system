@@ -1,49 +1,70 @@
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from library.domain.book_type.entity import BookType
-from library.infrastructure.repositories.books_repository import BookRepository
-from library.infrastructure.repositories.member_repository import MemberRepository
-from datetime import datetime, timezone
+from library.application.services import get_work_service
+from library.application.shared.exceptions import DataNotFoundException
+from library.domain.book.entity import BookEntity
+
+
 class BookService:
-    def __init__(self, book_repo: BookRepository, member_repo: MemberRepository, session: AsyncSession):
-        self.book_repo = book_repo
-        self.member_repo = member_repo
-        self.session = session
+    async def add(self, data: dict[str, Any]) -> BookEntity:
+        book_entity = BookEntity.from_dict(data)
+        async with get_work_service() as work_service:
+            return await work_service.book_repo.add(book_entity)
 
-    async def borrow_book(self, book_id: UUID, member_id: UUID) -> dict[str, Any]:
-        """
-        This method allow the member to borrow a book if is it not already borrowed
-        """
-        book = await self.book_repo.get(book_id)
-        if not book:
-            raise Exception(f"Book with ID {book_id} not found.")
-        if book["borrowed_by"]:
-            raise Exception(f"Book with ID {book_id} is already borrowed.")
+    async def update(self, id: UUID, data: dict[str, Any]) -> BookEntity:
+        async with get_work_service() as work_service:
+            if not await work_service.book_repo.get_by_id(id):
+                raise DataNotFoundException(f'Book with ID {id} not found.')
+            return await work_service.book_repo.update(id, data)
 
-        member = await self.member_repo.get(member_id)
-        if not member:
-            raise Exception(f"Member with ID {member_id} not found.")
+    async def list(self) -> list[BookEntity]:
+        async with get_work_service() as work_service:
+            return await work_service.book_repo.get_all()
 
-        book["is_borrowed"] = True
-        book["borrowed_by"] = member_id
-        book["borrowed_date"] = datetime.now(timezone.utc)
-        await self.book_repo.update(book)
-        return book
+    async def get_by_id(self, id: UUID) -> BookEntity:
+        async with get_work_service() as work_service:
+            if not (book := await work_service.book_repo.get_by_id(id)):
+                raise DataNotFoundException(f'Book with ID {id} not found.')
+            return book
 
-    async def return_book(self, book_id: UUID) -> dict[str, Any] | None:
-        """
-        This method allows the user to return a book.
-        """
-        book = await self.book_repo.get(book_id)
-        if not book:
-            return None
-        if not book["is_borrowed"]:
-            raise Exception(f"Book with ID {book_id} is not borrowed.")
+    async def delete(self, id: UUID) -> BookEntity:
+        async with get_work_service() as work_service:
+            if not await work_service.book_repo.get_by_id(id):
+                raise DataNotFoundException(f'Book with ID {id} not found.')
+            return await work_service.book_repo.delete(id)
 
-        book["is_borrowed"] = False
-        book["borrowed_by"] = None
-        book["borrowed_date"] = None
-        await self.book_repo.update(book)
-        return book
+    async def borrow_book(self, book_id: UUID, member_id: UUID) -> BookEntity:
+        async with get_work_service() as work_service:
+            book = await work_service.book_repo.get_by_id(book_id)
+            if not book:
+                raise DataNotFoundException(f'Book with ID {book_id} not found.')
+            book_data = book.to_dict()
+            if book_data['is_borrowed']:
+                raise ValueError(f'Book with ID {book_id} is already borrowed.')
+
+            member = await work_service.member_repo.get_by_id(member_id)
+            if not member:
+                raise DataNotFoundException(f'Member with ID {member_id} not found.')
+
+            book_data['is_borrowed'] = True
+            book_data['borrowed_by'] = member_id
+            book_data['borrowed_date'] = datetime.now(timezone.utc)
+            result = await work_service.book_repo.update(book_id, book_data)
+            return result
+
+    async def return_book(self, book_id: UUID) -> BookEntity:
+        async with get_work_service() as work_service:
+            book = await work_service.book_repo.get_by_id(book_id)
+            if not book:
+                raise DataNotFoundException(f'Book with ID {book_id} not found.')
+            book_data = book.to_dict()
+            if not book_data['is_borrowed']:
+                raise ValueError(f'Book with ID {book_id} is not borrowed.')
+
+            book_data['is_borrowed'] = False
+            book_data['borrowed_by'] = None
+            book_data['borrowed_date'] = None
+            result = await work_service.book_repo.update(book_id, book_data)
+            return result
